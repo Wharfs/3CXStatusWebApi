@@ -3,6 +3,6 @@
 ################################################################################
 
 /.vs
-/bin/Debug
-/obj
-/3cxpscomcpp2.dll
+3CXStatusWebApi/bin/Debug
+3CXStatusWebApi/obj
+3CXStatusWebApi/3cxpscomcpp2.dll
