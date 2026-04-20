@@ -11,7 +11,10 @@ namespace WebAPI;
 
 public class Program
 {
-    private static string _instanceBinPath = string.Empty;
+    // Paths to search for the 3CX assemblies at runtime, in priority order.
+    // Populated from config + 3CX ini during Main().
+    private static readonly List<string> _assemblySearchPaths = new();
+    private static ILogger<Program>? _logger;
 
     public static void Main(string[] args)
     {
@@ -32,11 +35,36 @@ public class Program
         builder.Services.AddFastEndpoints();
 
         var app = builder.Build();
-        var logger = app.Services.GetRequiredService<ILogger<Program>>();
+        _logger = app.Services.GetRequiredService<ILogger<Program>>();
 
+        // Build the assembly search path list before touching any TCX types.
+        // Priority:
+        //   1. PbxAssemblyPath from appsettings.json if set (override for
+        //      unusual 3CX layouts or testing).
+        //   2. /usr/lib/3cxpbx/ on Linux - system-shared, kept current by
+        //      3CX package upgrades. This is the copy the WebApi build
+        //      references at build time so versions will match at runtime.
+        //   3. {General:AppPath}/Bin from the PBX ini - the legacy per-
+        //      instance location. On a multi-year-old install this is
+        //      often stale (e.g. a 2022 DLL with a 2026 PBX), which causes
+        //      assembly-version-mismatch loads to fail. Kept as a fallback
+        //      for installs where /usr/lib/3cxpbx isn't populated, such
+        //      as 3CX-for-Windows.
+        var overridePath = builder.Configuration["PbxAssemblyPath"];
+        if (!string.IsNullOrWhiteSpace(overridePath))
+        {
+            _assemblySearchPaths.Add(overridePath);
+        }
+        if (OperatingSystem.IsLinux())
+        {
+            _assemblySearchPaths.Add("/usr/lib/3cxpbx");
+        }
         var appPath = builder.Configuration["General:AppPath"]
             ?? throw new InvalidOperationException($"Cannot read General:AppPath from {pbxIniPath}");
-        _instanceBinPath = Path.Combine(appPath, "Bin");
+        _assemblySearchPaths.Add(Path.Combine(appPath, "Bin"));
+
+        _logger.LogInformation("3CX assembly search order: {Paths}",
+            string.Join(" -> ", _assemblySearchPaths));
 
         AppDomain.CurrentDomain.AssemblyResolve += CurrentDomain_AssemblyResolve;
 
@@ -59,7 +87,7 @@ public class Program
             confUser,
             confPass);
         ps.WaitForConnect(TimeSpan.FromSeconds(30));
-        logger.LogInformation("Connected to 3CX ConfService on port {Port}", confPort);
+        _logger.LogInformation("Connected to 3CX ConfService on port {Port}", confPort);
 
         app.UseApiKey();
         app.UseAuthorization();
@@ -68,7 +96,7 @@ public class Program
         try
         {
             app.Run();
-            logger.LogInformation("exited gracefully");
+            _logger.LogInformation("exited gracefully");
         }
         finally
         {
@@ -78,14 +106,22 @@ public class Program
 
     private static Assembly? CurrentDomain_AssemblyResolve(object? sender, ResolveEventArgs args)
     {
-        try
+        var name = new AssemblyName(args.Name).Name + ".dll";
+        foreach (var dir in _assemblySearchPaths)
         {
-            var name = new AssemblyName(args.Name).Name;
-            return Assembly.LoadFrom(Path.Combine(_instanceBinPath, name + ".dll"));
+            var candidate = Path.Combine(dir, name);
+            if (!File.Exists(candidate)) continue;
+            try
+            {
+                _logger?.LogDebug("Loading {Name} from {Candidate}", name, candidate);
+                return Assembly.LoadFrom(candidate);
+            }
+            catch (Exception ex)
+            {
+                _logger?.LogWarning(ex, "Failed to load {Name} from {Candidate}, trying next path", name, candidate);
+            }
         }
-        catch
-        {
-            return null;
-        }
+        _logger?.LogError("Could not resolve assembly {Name}; searched: {Paths}", name, string.Join(", ", _assemblySearchPaths));
+        return null;
     }
 }
