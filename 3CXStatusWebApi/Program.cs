@@ -3,8 +3,6 @@ using FastEndpoints;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
-using TCX.Configuration;
-using TCXPhoneSystem = TCX.Configuration.PhoneSystem;
 using WebAPI.ApiKey;
 
 namespace WebAPI;
@@ -12,12 +10,23 @@ namespace WebAPI;
 public class Program
 {
     // Paths to search for the 3CX assemblies at runtime, in priority order.
-    // Populated from config + 3CX ini during Main().
+    // Populated from config + 3CX ini during Main() before AssemblyResolve is
+    // registered, which in turn happens before we call any method that uses
+    // a TCX type.
     private static readonly List<string> _assemblySearchPaths = new();
     private static ILogger<Program>? _logger;
 
     public static void Main(string[] args)
     {
+        // IMPORTANT: This method must not reference any type from the TCX.*
+        // namespaces, not even via a using-alias. The .NET JIT resolves all
+        // type references in a method body before executing any of its IL,
+        // which means the TCX assembly would have to be loadable BEFORE
+        // AssemblyResolve is registered - chicken-and-egg. The actual PBX
+        // connection lives in RunWithPhoneSystem() below so the TCX assembly
+        // load only gets triggered when we call that method, by which time
+        // AssemblyResolve is wired up and can hand over the right DLL.
+
         var builder = WebApplication.CreateBuilder(args);
 
         builder.Configuration
@@ -37,17 +46,17 @@ public class Program
         var app = builder.Build();
         _logger = app.Services.GetRequiredService<ILogger<Program>>();
 
-        // Build the assembly search path list before touching any TCX types.
+        // Build the assembly search path list before wiring up AssemblyResolve.
         // Priority:
         //   1. PbxAssemblyPath from appsettings.json if set (override for
         //      unusual 3CX layouts or testing).
         //   2. /usr/lib/3cxpbx/ on Linux - system-shared, kept current by
         //      3CX package upgrades. This is the copy the WebApi build
-        //      references at build time so versions will match at runtime.
+        //      references at build time, so versions match at runtime.
         //   3. {General:AppPath}/Bin from the PBX ini - the legacy per-
         //      instance location. On a multi-year-old install this is
-        //      often stale (e.g. a 2022 DLL with a 2026 PBX), which causes
-        //      assembly-version-mismatch loads to fail. Kept as a fallback
+        //      often stale (e.g. a 2022 DLL with a 2026 PBX), which fails
+        //      with a runtime assembly-version mismatch. Kept as a fallback
         //      for installs where /usr/lib/3cxpbx isn't populated, such
         //      as 3CX-for-Windows.
         var overridePath = builder.Configuration["PbxAssemblyPath"];
@@ -68,6 +77,8 @@ public class Program
 
         AppDomain.CurrentDomain.AssemblyResolve += CurrentDomain_AssemblyResolve;
 
+        // Read ConfService settings via IConfiguration strings (not TCX types)
+        // so this method still doesn't need the TCX assembly resolved.
         var confPort = int.Parse(builder.Configuration["ConfService:ConfPort"]
             ?? throw new InvalidOperationException("Cannot read ConfService:ConfPort"));
         var confUser = builder.Configuration["ConfService:confUser"]
@@ -75,19 +86,27 @@ public class Program
         var confPass = builder.Configuration["ConfService:confPass"]
             ?? throw new InvalidOperationException("Cannot read ConfService:confPass");
 
-        TCXPhoneSystem.CfgServerHost = "127.0.0.1";
-        TCXPhoneSystem.CfgServerPort = confPort;
-        TCXPhoneSystem.CfgServerUser = confUser;
-        TCXPhoneSystem.CfgServerPassword = confPass;
+        // First call into TCX-using code happens here. The JIT will compile
+        // RunWithPhoneSystem at this moment and the TCX assembly load will
+        // be served by AssemblyResolve we just wired up.
+        RunWithPhoneSystem(app, confPort, confUser, confPass);
+    }
 
-        var ps = TCXPhoneSystem.Reset(
-            TCXPhoneSystem.ApplicationName + new Random(Environment.TickCount).Next().ToString(),
+    private static void RunWithPhoneSystem(WebApplication app, int confPort, string confUser, string confPass)
+    {
+        TCX.Configuration.PhoneSystem.CfgServerHost = "127.0.0.1";
+        TCX.Configuration.PhoneSystem.CfgServerPort = confPort;
+        TCX.Configuration.PhoneSystem.CfgServerUser = confUser;
+        TCX.Configuration.PhoneSystem.CfgServerPassword = confPass;
+
+        var ps = TCX.Configuration.PhoneSystem.Reset(
+            TCX.Configuration.PhoneSystem.ApplicationName + new Random(Environment.TickCount).Next().ToString(),
             "127.0.0.1",
             confPort,
             confUser,
             confPass);
         ps.WaitForConnect(TimeSpan.FromSeconds(30));
-        _logger.LogInformation("Connected to 3CX ConfService on port {Port}", confPort);
+        _logger?.LogInformation("Connected to 3CX ConfService on port {Port}", confPort);
 
         app.UseApiKey();
         app.UseAuthorization();
@@ -96,7 +115,7 @@ public class Program
         try
         {
             app.Run();
-            _logger.LogInformation("exited gracefully");
+            _logger?.LogInformation("exited gracefully");
         }
         finally
         {
@@ -113,7 +132,7 @@ public class Program
             if (!File.Exists(candidate)) continue;
             try
             {
-                _logger?.LogDebug("Loading {Name} from {Candidate}", name, candidate);
+                _logger?.LogInformation("Loading {Name} from {Candidate}", name, candidate);
                 return Assembly.LoadFrom(candidate);
             }
             catch (Exception ex)
