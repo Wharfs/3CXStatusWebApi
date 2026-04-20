@@ -9,9 +9,34 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <!--
+      Build-time location of 3cxpscomcpp2.dll (the 3CX Call Control assembly
+      this service wraps). It is a managed .NET assembly, so any OS with
+      .NET 8 can build against it — the path just has to be reachable at
+      build time.
+
+      Override with `dotnet build -p:PbxBinPath=/absolute/path` or by setting
+      a PbxBinPath environment variable before building.
+
+      Defaults:
+        Linux (3CX v20 Debian server): /var/lib/3cxpbx/Instance1/Bin
+        Windows (legacy 3CX for Windows install): C:\Program Files\3CX Phone System\Bin
+
+      If building on a machine that has neither path, scp the DLL off a
+      running 3CX server and set PbxBinPath to point at its folder.
+
+      <Private>false</Private> keeps the DLL out of the build output — at
+      runtime it is loaded from the actual 3CX install via the
+      AssemblyResolve hook in Program.cs.
+    -->
+    <PbxBinPath Condition="'$(PbxBinPath)' == '' AND '$(OS)' == 'Windows_NT'">C:\Program Files\3CX Phone System\Bin</PbxBinPath>
+    <PbxBinPath Condition="'$(PbxBinPath)' == ''">/var/lib/3cxpbx/Instance1/Bin</PbxBinPath>
+  </PropertyGroup>
+
   <ItemGroup>
     <Reference Include="3cxpscomcpp2">
-      <HintPath>C:\Program Files\3CX Phone System\Bin\3cxpscomcpp2.dll</HintPath>
+      <HintPath>$(PbxBinPath)/3cxpscomcpp2.dll</HintPath>
       <Private>false</Private>
     </Reference>
   </ItemGroup>
