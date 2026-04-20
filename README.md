@@ -19,8 +19,8 @@ It runs on the 3CX server itself (typically `/opt/3CXWebApi/` on a v20 Debian in
 
 ```
 ┌──────────────────────┐    poll every 5s       ┌──────────────────┐   COM    ┌───────┐
-│  Tray (one per desk) │ ─────────────────────▶│ 3CXStatusWebApi  │ ────────▶│  3CX  │
-│  x N desks           │ ◀─────────────────────│   (on PBX host)  │          │  PBX  │
+│  Tray (one per desk) │ ---------------------> │ 3CXStatusWebApi  │ -------> │  3CX  │
+│  x N desks           │ <--------------------- │   (on PBX host)  │          │  PBX  │
 └──────────────────────┘    toggle on click     └──────────────────┘          └───────┘
 ```
 
