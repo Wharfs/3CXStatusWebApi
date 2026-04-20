@@ -1,8 +1,11 @@
-﻿################################################################################
+################################################################################
 # This .gitignore file was automatically created by Microsoft(R) Visual Studio.
 ################################################################################
 
-/.vs
-3CXStatusWebApi/bin/Debug
-3CXStatusWebApi/obj
+/.vs/
+**/bin/
+**/obj/
+**/*.user
+**/TestResults/
 3CXStatusWebApi/3cxpscomcpp2.dll
+3CXStatusWebApi/3CXPhoneSystem.ini
