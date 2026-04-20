@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" Version="17.10.0" />
+    <PackageReference Include="xunit" Version="2.9.0" />
+    <PackageReference Include="xunit.runner.visualstudio" Version="2.8.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Mvc.Testing" Version="8.0.8" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!--
+      Pull in only the pure, COM-DLL-free sources from the main project.
+      A straight ProjectReference would force this test assembly to resolve
+      3cxpscomcpp2.dll (only present on the 3CX PBX host) and break builds
+      everywhere else.
+    -->
+    <Compile Include="..\3CXStatusWebApi\Functions\PhoneSystem\ProfileMapping.cs" Link="Linked\ProfileMapping.cs" />
+    <Compile Include="..\3CXStatusWebApi\Functions\PhoneSystem\SystemStatus.cs" Link="Linked\SystemStatus.cs" />
+    <Compile Include="..\3CXStatusWebApi\ApiKey\ApiKeyMiddleware.cs" Link="Linked\ApiKeyMiddleware.cs" />
+  </ItemGroup>
+
+</Project>
