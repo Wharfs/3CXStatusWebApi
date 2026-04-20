@@ -1,77 +1,70 @@
-using System;
-using System.Collections.Generic;
-using System.Text;
-using TCX.Configuration;
-using TCX.PBXAPI;
-using System.Threading;
-using System.IO;
-using System.Reflection;
 using System.Linq;
-using System.Net;
-using System.Text.Json;
+using TCX.Configuration;
+using WebAPI.Functions.PhoneSystem;
 
-namespace WebAPI.Functions
+namespace WebAPI.Functions;
+
+public class Extensions
 {
-    public class Extensions
+    public static ApiQueryResponse getExtensionProfile(string extensionId)
     {
-
-        public static ApiQueryResponse getExtensionProfile(string ExtensionID)
+        var ps = global::TCX.Configuration.PhoneSystem.Root;
+        if (ps.GetDNByNumber(extensionId) is not Extension extension)
         {
-            PhoneSystem ps = PhoneSystem.Root;
-            var extension = ps.GetDNByNumber(ExtensionID) as Extension;
-            return new ApiQueryResponse(extension.CurrentProfile?.Name, "OK");
+            return new ApiQueryResponse($"extension {extensionId} not found", "NOT_FOUND");
+        }
+        return new ApiQueryResponse(extension.CurrentProfile?.Name ?? "unknown", "OK");
+    }
+
+    public static ApiQueryResponse setExtensionProfile(string extensionId, string shortCode)
+    {
+        var profileName = ProfileMapping.ShortCodeToProfileName(shortCode);
+        if (profileName is null)
+        {
+            return new ApiQueryResponse($"unknown profile short-code: {shortCode}", "BAD_REQUEST");
         }
 
-        public static ApiQueryResponse setExtensionProfile(string ExtensionID, string ProfileName)
+        var ps = global::TCX.Configuration.PhoneSystem.Root;
+        if (ps.GetDNByNumber(extensionId) is not Extension extension)
         {
-            PhoneSystem ps = PhoneSystem.Root;
-            var extension = ps.GetDNByNumber(ProfileName) as Extension;
+            return new ApiQueryResponse($"extension {extensionId} not found", "NOT_FOUND");
+        }
 
-            string newprofile = "";
-            switch (ExtensionID)
+        var profile = extension.FwdProfiles.FirstOrDefault(p => p.Name == profileName);
+        if (profile is null)
+        {
+            return new ApiQueryResponse($"profile '{profileName}' not configured on extension {extensionId}", "NOT_FOUND");
+        }
+
+        extension.CurrentProfile = profile;
+        extension.Save();
+        return new ApiQueryResponse(profileName, "OK");
+    }
+
+    public static ApiQueryResponse setAllExtensionsProfile(string shortCode)
+    {
+        var profileName = ProfileMapping.ShortCodeToProfileName(shortCode);
+        if (profileName is null)
+        {
+            return new ApiQueryResponse($"unknown profile short-code: {shortCode}", "BAD_REQUEST");
+        }
+
+        var ps = global::TCX.Configuration.PhoneSystem.Root;
+        int applied = 0;
+        int skipped = 0;
+        foreach (Extension extension in ps.GetExtensions())
+        {
+            var profile = extension.FwdProfiles.FirstOrDefault(p => p.Name == profileName);
+            if (profile is null)
             {
-                case "available": newprofile = "Available"; break;
-                case "away": newprofile = "Away"; break;
-                case "out_of_office": newprofile = "Out of office"; break;
-                case "custom1": newprofile = "Custom 1"; break;
-                case "custom2": newprofile = "Custom 2"; break;
+                skipped++;
+                continue;
             }
-
-            var profile = extension.FwdProfiles.Where(x => x.Name == newprofile).First();
-            //var profile = extension.FwdProfiles.ElementAt(i);
             extension.CurrentProfile = profile;
             extension.Save();
-            // I mean really sausagewomble - you could check something no ?
-            return new ApiQueryResponse(newprofile, "OK");
-
-        }
-        public static ApiQueryResponse setAllExtensionsProfile(string ProfileName)
-        {
-            PhoneSystem ps = PhoneSystem.Root;
-            var extensions = ps.GetExtensions();
-
-            string newprofile = "";
-            switch (ProfileName)
-            {
-                case "available": newprofile = "Available"; break;
-                case "away": newprofile = "Away"; break;
-                case "out_of_office": newprofile = "Out of office"; break;
-                case "custom1": newprofile = "Custom 1"; break;
-                case "custom2": newprofile = "Custom 2"; break;
-            }
-
-            foreach (Extension extension in extensions)
-            {
-                var profile = extension.FwdProfiles.Where(x => x.Name == newprofile).First();
-                //var profile = extension.FwdProfiles.ElementAt(i);
-                extension.CurrentProfile = profile;
-                extension.Save();
-                // or do this ?
-                //setExtensionProfile(extension.Number, ProfileName);
-            }
-            // I mean really sausagewomble - you could check something no ?
-            return new ApiQueryResponse(newprofile, "OK");
+            applied++;
         }
 
+        return new ApiQueryResponse($"{profileName} (applied to {applied}, skipped {skipped})", "OK");
     }
 }
