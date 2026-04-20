@@ -1,9 +1,9 @@
-﻿using System.Threading.Tasks;
-using System.Threading;
-using System;
+using FastEndpoints;
 using WebAPI.Functions;
 
-public class SetExtensionProfileEndpoint : Endpoint<SetExtensionProfileRequest>
+namespace WebAPI.Status.Extension;
+
+public class SetExtensionProfileEndpoint : Endpoint<SetExtensionProfileRequest, Response>
 {
     public override void Configure()
     {
@@ -13,22 +13,12 @@ public class SetExtensionProfileEndpoint : Endpoint<SetExtensionProfileRequest>
 
     public override async Task HandleAsync(SetExtensionProfileRequest req, CancellationToken ct)
     {
-
-        string ExtensionID = Route<int>("ExtensionID").ToString();
-        string ProfileName = Route<string>("ProfileName");
-
-        var PsStatus = new Extensions();
-        var PsResponse = Extensions.setExtensionProfile(ExtensionID, ProfileName);
-
-        System.Diagnostics.Debug.WriteLine(ExtensionID);
-
-        var response = new Response()
+        var psResponse = Extensions.setExtensionProfile(req.ExtensionID, req.ProfileName);
+        await SendAsync(new Response
         {
-            Message = PsResponse.Message,
-            Status = PsResponse.Status,
-            TimeStamp = PsResponse.TimeStamp,
-        };
-
-        await SendAsync(response);
+            Message = psResponse.Message ?? string.Empty,
+            Status = psResponse.Status ?? string.Empty,
+            TimeStamp = psResponse.TimeStamp,
+        }, cancellation: ct);
     }
 }

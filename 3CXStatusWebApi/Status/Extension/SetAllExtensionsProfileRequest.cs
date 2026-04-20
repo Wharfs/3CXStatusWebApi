@@ -1,5 +1,6 @@
-﻿public class SetAllExtensionsProfileRequest
+namespace WebAPI.Status.Extension;
+
+public class SetAllExtensionsProfileRequest
 {
-    public string ExtensionID { get; set; }
-    public string ProfileName { get; set; }
+    public string ProfileName { get; set; } = string.Empty;
 }
