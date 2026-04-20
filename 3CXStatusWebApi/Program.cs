@@ -109,7 +109,6 @@ public class Program
         _logger?.LogInformation("Connected to 3CX ConfService on port {Port}", confPort);
 
         app.UseApiKey();
-        app.UseAuthorization();
         app.UseFastEndpoints();
 
         try
@@ -126,6 +125,15 @@ public class Program
     private static Assembly? CurrentDomain_AssemblyResolve(object? sender, ResolveEventArgs args)
     {
         var name = new AssemblyName(args.Name).Name + ".dll";
+
+        // XmlSerializers are optional pre-generated serialization assemblies,
+        // and *.resources.dll are per-culture localisation satellites. Neither
+        // ship with our deploy; the runtime falls back to runtime serialization
+        // and the default culture. Log nothing for these or the journal fills
+        // with benign 'Could not resolve' noise.
+        var isBenignMiss = name.EndsWith(".XmlSerializers.dll", StringComparison.OrdinalIgnoreCase)
+                        || name.EndsWith(".resources.dll", StringComparison.OrdinalIgnoreCase);
+
         foreach (var dir in _assemblySearchPaths)
         {
             var candidate = Path.Combine(dir, name);
@@ -140,7 +148,11 @@ public class Program
                 _logger?.LogWarning(ex, "Failed to load {Name} from {Candidate}, trying next path", name, candidate);
             }
         }
-        _logger?.LogError("Could not resolve assembly {Name}; searched: {Paths}", name, string.Join(", ", _assemblySearchPaths));
+
+        if (!isBenignMiss)
+        {
+            _logger?.LogError("Could not resolve assembly {Name}; searched: {Paths}", name, string.Join(", ", _assemblySearchPaths));
+        }
         return null;
     }
 }
