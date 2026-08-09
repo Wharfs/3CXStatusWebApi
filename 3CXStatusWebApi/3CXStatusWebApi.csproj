@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>net8.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <StartupObject>WebAPI.Program</StartupObject>
     <RootNamespace>WebAPI</RootNamespace>
     <AssemblyName>WebAPICore</AssemblyName>
@@ -12,9 +12,9 @@
   <PropertyGroup>
     <!--
       Build-time location of 3cxpscomcpp2.dll (the 3CX Call Control assembly
-      this service wraps). It is a managed .NET assembly, so any OS with
-      .NET 8 can build against it — the path just has to be reachable at
-      build time.
+      this service wraps). It is a managed .NET assembly, so any OS with a
+      matching .NET SDK can build against it — the path just has to be
+      reachable at build time.
 
       Override with `dotnet build -p:PbxBinPath=/absolute/path` or by setting
       a PbxBinPath environment variable before building.
@@ -23,8 +23,28 @@
         Linux (3CX v20 Debian server): /var/lib/3cxpbx/Instance1/Bin
         Windows (legacy 3CX for Windows install): C:\Program Files\3CX Phone System\Bin
 
-      If building on a machine that has neither path, scp the DLL off a
-      running 3CX server and set PbxBinPath to point at its folder.
+      The Linux default (Instance1/Bin) is the per-instance copy laid down at
+      3CX install time and NOT refreshed by PBX package upgrades — as of
+      August 2026 it's still the original Sep 2022 build, predating this
+      month's .NET 10 rebuild entirely. It only works as a build default
+      because the compiled-against API surface has stayed stable; it does
+      NOT reflect what the PBX is actually running.
+
+      If building off-box (any Linux dev machine, not the 3CX server itself),
+      scp the CURRENT copy down instead and point PbxBinPath at its folder:
+
+        scp root@<3cx-host>:/usr/lib/3cxpbx/3cxpscomcpp2.dll /path/to/local/lib/
+        dotnet build -p:PbxBinPath=/path/to/local/lib
+
+      /usr/lib/3cxpbx/ is the system-shared copy, refreshed on every 3CX
+      package upgrade — it's what the runtime AssemblyResolve hook in
+      Program.cs prefers too (see the search-order comment there). Building
+      against a stale Instance1/Bin reference is what let the August 2026
+      3CX update (which rebuilt this DLL against .NET 10) go unnoticed at
+      build time — it still compiled, then crashed at runtime with a
+      FileLoadException on System.Runtime v10.0.0.0 because the deployed
+      TargetFramework was still net8.0. See the parent CLAUDE.md's runtime
+      debug history for the full incident.
 
       <Private>false</Private> keeps the DLL out of the build output — at
       runtime it is loaded from the actual 3CX install via the

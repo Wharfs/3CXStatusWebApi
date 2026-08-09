@@ -56,25 +56,26 @@ All endpoints are `AllowAnonymous` by default. To require auth, set `ApiKey` to 
 ## Prerequisites
 
 - 3CX v20 Phone System. Tested against the standard v20 Debian install; should also work on 3CX-for-Windows if that's still an option.
-- [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0) for building. The deployed service is published self-contained, so the 3CX server itself does *not* need .NET installed.
-- Access to the `3cxpscomcpp2.dll` managed assembly that ships with 3CX — at build time only. On a v20 Debian install it's at `/usr/lib/3cxpbx/3cxpscomcpp2.dll` (system-shared, updated on PBX upgrades).
+- [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet/10.0) for building. The deployed service is published self-contained, so the 3CX server itself does *not* need .NET installed. (Retargeted from .NET 8 in August 2026 — 3CX rebuilt `3cxpscomcpp2.dll` against .NET 10 in a PBX update, and a service built against an older TFM can't load it; see "Building" below.)
+- Access to the `3cxpscomcpp2.dll` managed assembly that ships with 3CX — at build time only. On a v20 Debian install it's at `/usr/lib/3cxpbx/3cxpscomcpp2.dll` (system-shared, updated on PBX upgrades). **Always build against this copy**, not `/var/lib/3cxpbx/Instance1/Bin/3cxpscomcpp2.dll` — the latter is laid down once at install time and never refreshed, so it silently drifts out of sync with what the PBX is actually running (see below).
 
 ## Building
 
 Cross-platform — the tray half is Windows-only, but this service isn't:
 
 ```bash
-# On the 3CX server (default PbxBinPath already correct):
-dotnet build -c Release
+# On the 3CX server itself, building against the live, current DLL:
+dotnet build -c Release -p:PbxBinPath=/usr/lib/3cxpbx
 
-# On any Linux dev box, with the DLL copied to ~/lib/3cx/:
+# On any Linux dev box, after scp'ing the DLL off the server:
+scp root@<3cx-host>:/usr/lib/3cxpbx/3cxpscomcpp2.dll /home/you/lib/3cx/
 dotnet build -c Release -p:PbxBinPath=/home/you/lib/3cx
 
 # On Windows with a legacy 3CX-for-Windows install:
 dotnet build -c Release
 ```
 
-`PbxBinPath` has per-OS defaults (Linux: `/var/lib/3cxpbx/Instance1/Bin`, Windows: `C:\Program Files\3CX Phone System\Bin`). Override at build time if your install lives elsewhere — commonly, the `/usr/lib/3cxpbx/` copy on a Debian server.
+`PbxBinPath` has per-OS defaults (Linux: `/var/lib/3cxpbx/Instance1/Bin`, Windows: `C:\Program Files\3CX Phone System\Bin`) but **the Linux default is stale** — it's the copy laid down at original install and never refreshed by PBX upgrades (still the Sep 2022 build as of August 2026). Always pass `-p:PbxBinPath=/usr/lib/3cxpbx` explicitly (or the local folder you scp'd it to) rather than relying on the default. This is also what bit us in August 2026: 3CX rebuilt the DLL against .NET 10, the stale Instance1/Bin default still compiled fine against it (API surface unchanged), and the mismatch only surfaced as a runtime crash after deploy.
 
 ### Tests
 
@@ -88,7 +89,7 @@ Covers the profile short-code mapping, the `OVERRIDEOFFICETIME` system-status ma
 
 ### Publish a self-contained tarball
 
-Run on any .NET-8-SDK-equipped machine (doesn't have to be the 3CX server). Produces a standalone bundle that ships its own .NET 8 runtime, so the target server doesn't need .NET installed at all.
+Run on any .NET-10-SDK-equipped machine (doesn't have to be the 3CX server). Produces a standalone bundle that ships its own .NET 10 runtime, so the target server doesn't need .NET installed at all — and, since this is self-contained, a future 3CX-side runtime bump like the one in August 2026 can't recur *for this reason* (it'll still need a rebuild if 3CX rebuilds the DLL against something newer again — see the csproj's `PbxBinPath` comment).
 
 ```bash
 dotnet publish 3CXStatusWebApi/3CXStatusWebApi.csproj \
@@ -101,7 +102,9 @@ dotnet publish 3CXStatusWebApi/3CXStatusWebApi.csproj \
 tar czf /tmp/webapi.tgz -C /tmp/webapi-publish .
 ```
 
-Output is ~40 MB compressed, ~95 MB uncompressed. Transfer to the 3CX server alongside `tools/deploy-webapi.sh`:
+`PbxBinPath` should point at a folder holding the **current** `/usr/lib/3cxpbx/3cxpscomcpp2.dll` (scp'd down if building off-box) — see "Building" above for why the Instance1/Bin default is the wrong choice here.
+
+Output is ~46 MB compressed, ~106 MB uncompressed (grew slightly with the .NET 10 move). Transfer to the 3CX server alongside `tools/deploy-webapi.sh`:
 
 ```bash
 scp /tmp/webapi.tgz tools/deploy-webapi.sh root@<3cx>:/root/
@@ -148,7 +151,7 @@ After editing, restart: `systemctl restart 3CXWebApi`.
 
 Releases aren't automated via GitHub Actions — the 3CX `3cxpscomcpp2.dll` is a 3CX-licensed assembly, not redistributable on public CI, and a stub reference assembly is more maintenance than it saves given how rarely this releases.
 
-Manual release flow, run from any .NET-8-SDK-equipped machine with the DLL available:
+Manual release flow, run from any .NET-10-SDK-equipped machine with the current DLL available:
 
 ```bash
 # 1. Bump the version (edit wherever you want a single source of truth; there isn't one right now)
